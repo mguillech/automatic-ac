@@ -48,86 +48,99 @@ def date_range(date_start, date_end):
     for d in xrange(delta + 1):
         yield date_start + datetime.timedelta(days=d)
 
-def load_configuration(CONF_FILE):
-    if not os.path.exists(CONF_FILE):
-        edit_conf = raw_input('Configuration file does not exist. Would you like to edit a new one? (Y/n) ')
-        if edit_conf.lower() in ('y', 'yes', ''):
-            # Attempt to copy over sample file
-            try:
-                shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'auto_ac.rc.sample'), CONF_FILE)
-            except (IOError, OSError):
-                pass
-            print 'Attempting to launch file editor...'
-            if os.uname()[0] == 'Linux':
-                os.system('gedit %s' % CONF_FILE)
+class _AC_Connector(object):
+    def __init__(self, api_url, api_token, conf_file):
+        self.api_url = api_url
+        self.api_token = api_token
+        self.conf_file = conf_file
+        self.user_id = None
+        self.configuration = None
+
+    def load_configuration(self):
+        if not os.path.exists(self.conf_file):
+            edit_conf = raw_input('Configuration file does not exist. Would you like to edit a new one? (Y/n) ')
+            if edit_conf.lower() in ('y', 'yes', ''):
+                # Attempt to copy over sample file
+                try:
+                    shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'auto_ac.rc.sample'),
+                        self.conf_file)
+                except (IOError, OSError):
+                    pass
+                print 'Attempting to launch file editor...'
+                if os.uname()[0] == 'Linux':
+                    os.system('gedit %s' % self.conf_file)
+                else:
+                    os.system('notepad %s' % self.conf_file)
             else:
-                os.system('notepad %s' % CONF_FILE)
+                sys.exit(0)
+        try:
+            fd = open(self.conf_file)
+        except Exception, exc:
+            _error_and_exit('Couldn\'t read %s: %s' % (self.conf_file, exc))
         else:
-            sys.exit(0)
-    try:
-        fd = open(CONF_FILE)
-    except Exception, exc:
-        _error_and_exit('Couldn\'t read %s: %s' % (CONF_FILE, exc))
-    else:
-        loaded_conf = yaml.load(fd)
-        if not isinstance(loaded_conf, dict):
-            _error_and_exit('Configuration is not valid! Please re-create the configuration file')
-        return loaded_conf
+            loaded_conf = yaml.load(fd)
+            if not isinstance(loaded_conf, dict):
+                _error_and_exit('Configuration is not valid! Please re-create the configuration file')
+            self.configuration = loaded_conf
 
-def _make_request(token, url, params={}, data={}, headers={}, method='GET'):
-    method_lower = method.lower()
-    parms = {'token': token, 'format': 'json'}
-    parms.update(params)
-    try:
-        requests_function = getattr(requests, method_lower)
-    except AttributeError:
-        _error_and_exit('Invalid method passed to function!')
-    if method_lower == 'get':
-        r = requests_function(url, params=parms, headers=headers)
-    else:
-        r = requests_function(url, params=parms, data=data, headers=headers)
-    try:
-        return json.loads(r.content)
-    except ValueError:
-        return []
+    def _make_request(self, params={}, data={}, headers={}, method='GET'):
+        method_lower = method.lower()
+        parms = {'token': self.api_token, 'format': 'json'}
+        parms.update(params)
+        try:
+            requests_function = getattr(requests, method_lower)
+        except AttributeError:
+            _error_and_exit('Invalid method passed to function!')
+        if method_lower == 'get':
+            r = requests_function(self.api_url, params=parms, headers=headers)
+        else:
+            r = requests_function(self.api_url, params=parms, data=data, headers=headers)
+        try:
+            return json.loads(r.content)
+        except ValueError:
+            return []
 
-def _get_user_id(token, url):
-    params = {'path_info': 'info'}
-    remote_info = _make_request(token, url, params)
-    try:
-        return int(urllib.unquote(remote_info['logged_user']).split('/')[-1])
-    except ValueError:
-        _error_and_exit('Could not get the ID of your user!')
+    def _set_user_id(self):
+        params = {'path_info': 'info'}
+        remote_info = self._make_request(params)
+        try:
+            self.user_id = int(urllib.unquote(remote_info['logged_user']).split('/')[-1])
+        except ValueError:
+            _error_and_exit('Could not get the ID of your user!')
+        else:
+            return self.user_id
 
-def _get_projects(token, url):
-    params = {'path_info': 'projects'}
-    remote_projects = _make_request(token, url, params)
-    return remote_projects
+    def _get_projects(self):
+        params = {'path_info': 'projects'}
+        remote_projects = self._make_request(params)
+        return remote_projects
 
-def _get_milestones(token, url, project_id):
-    params = {'path_info': 'projects/%s/milestones' % project_id}
-    remote_milestones = _make_request(token, url, params)
-    return remote_milestones
+    def _get_milestones(self, project_id):
+        params = {'path_info': 'projects/%s/milestones' % project_id}
+        remote_milestones = self._make_request(params)
+        return remote_milestones
 
-def _get_tickets(token, url, project_id, milestone_id):
-    params = {'path_info': 'projects/%s/tickets' % project_id}
-    remote_tickets = _make_request(token, url, params)
-    tickets = [ ticket for ticket in remote_tickets if ticket['milestone_id'] == milestone_id]
-    return tickets
+    def _get_tickets(self, project_id, milestone_id):
+        params = {'path_info': 'projects/%s/tickets' % project_id}
+        remote_tickets = self._make_request(params)
+        tickets = [ ticket for ticket in remote_tickets if ticket['milestone_id'] == milestone_id]
+        return tickets
 
-def _add_time_record(token, url, user_id, project_id, ticket_id, description, record_date, time):
-    params={'path_info': 'projects/%s/time/add' % project_id}
-    data={'submitted': 'submitted', 'time[user_id]': user_id, 'time[value]': time, 'time[record_date]': record_date,
-          'time[body]': description, 'time[billable_status]': 1, 'time[parent_id]': ticket_id}
-    print params, data
-    # add_record = _make_request(token, url, params, data, method='POST')
-    # if 'id' not in add_record:
-    #     print 'Error creating time record: %s' % add_record['field_errors']
+    def _add_time_record(self, project_id, ticket_id, description, record_date, time):
+        params={'path_info': 'projects/%s/time/add' % project_id}
+        data={'submitted': 'submitted', 'time[user_id]': self.user_id, 'time[value]': time,
+              'time[record_date]': record_date, 'time[body]': description, 'time[billable_status]': 1,
+              'time[parent_id]': ticket_id}
+        # print params, data
+        add_record = self._make_request(params, data, method='POST')
+        if 'id' not in add_record:
+            print 'Error creating time record: %s' % add_record['field_errors']
 
 
-def main(token, url, conf):
+def main(api_url, api_token, conf_file):
     # Internal flags
     AUTO_DATE = COMMIT = DATE = False
+
     try:
         opts, _ = getopt.getopt(sys.argv[1:], 'ach', ['autodate', 'commit', 'help'])
     except getopt.GetoptError, exc:
@@ -155,12 +168,17 @@ def main(token, url, conf):
             _error_and_exit('Provided value didn\'t match the DD-MM-YYYY format')
 
     week_start, week_end = calculate_week(DATE)
+    # Initialize ActiveCollab connector with personal configuration
+    ac_connector = _AC_Connector(api_url, api_token, conf_file)
+    ac_connector.load_configuration()
+    ac_connector._set_user_id()
+
     print 'Attempting to load time data starting at %s and up to %s ...' % (week_start, week_end)
-    user_id = _get_user_id(token, url)
-    remote_projects = _get_projects(token, url)
+
+    remote_projects = ac_connector._get_projects()
     if not remote_projects:
         _error_and_exit('No remote projects are viewable by you')
-    for project, milestones in conf.items():
+    for project, milestones in ac_connector.configuration.items():
         if not milestones.values():
             continue
         matched_projects = [ _ for _ in remote_projects if project.lower() in _['name'].lower() ]
@@ -168,14 +186,14 @@ def main(token, url, conf):
             continue
         # print matched_projects
         for matched_project in matched_projects:
-            remote_milestones = _get_milestones(token, url, matched_project['id'])
+            remote_milestones = ac_connector._get_milestones(matched_project['id'])
             for milestone in milestones:
                 matched_milestones = [ _ for _ in remote_milestones if milestone.lower() in _['name'].lower() ]
                 if not matched_milestones:
                     continue
                 # print matched_milestones
                 for matched_milestone in matched_milestones:
-                    remote_tickets = _get_tickets(token, url, matched_project['id'], matched_milestone['id'])
+                    remote_tickets = ac_connector._get_tickets(matched_project['id'], matched_milestone['id'])
                     for ticket in milestones.values():
                         for ticket_name, ticket_time in ticket.items():
                             matched_tickets = [ _ for _ in remote_tickets if ticket_name.lower() in _['name'].lower() ]
@@ -186,9 +204,9 @@ def main(token, url, conf):
                                 if COMMIT:
                                     for record_date in date_range(week_start, week_end):
                                         ticket_description = matched_ticket['name']
-                                        _add_time_record(token, url, user_id, matched_project['id'],
-                                            matched_ticket['ticket_id'], ticket_description, str(record_date), ticket_time)
+                                        ac_connector._add_time_record(matched_project['id'],
+                                            matched_ticket['ticket_id'], ticket_description, str(record_date),
+                                            ticket_time)
 
 if __name__ == '__main__':
-    conf = load_configuration(CONF_FILE)
-    main(API_TOKEN, API_URL, conf)
+    main(API_URL, API_TOKEN, CONF_FILE)
