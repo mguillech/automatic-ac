@@ -25,7 +25,7 @@ API_TOKEN = 'your_api_token'
 CONF_FILE = os.path.join(os.path.expanduser('~'), '.auto_ac.rc')
 
 def _error_and_exit(msg):
-    print "ERROR: %s" % msg
+    print "\nERROR: %s" % msg
     sys.exit(1)
 
 def print_usage():
@@ -91,10 +91,13 @@ class _AC_Connector(object):
             requests_function = getattr(requests, method_lower)
         except AttributeError:
             _error_and_exit('Invalid method passed to function!')
-        if method_lower == 'get':
-            r = requests_function(self.api_url, params=parms, headers=headers)
-        else:
-            r = requests_function(self.api_url, params=parms, data=data, headers=headers)
+        try:
+            if method_lower == 'get':
+                r = requests_function(self.api_url, params=parms, headers=headers)
+            else:
+                r = requests_function(self.api_url, params=parms, data=data, headers=headers)
+        except requests.exceptions.ConnectionError:
+            _error_and_exit('Cannot connect to your ActiveCollab service!')
         try:
             return json.loads(r.content)
         except ValueError:
@@ -125,6 +128,11 @@ class _AC_Connector(object):
         remote_tickets = self._make_request(params)
         tickets = [ ticket for ticket in remote_tickets if ticket['milestone_id'] == milestone_id]
         return tickets
+
+    def _get_times(self, project_id):
+        params = {'path_info': 'projects/%s/time' % project_id}
+        remote_times = self._make_request(params)
+        return remote_times
 
     def _add_time_record(self, project_id, ticket_id, description, record_date, time):
         params={'path_info': 'projects/%s/time/add' % project_id}
@@ -159,7 +167,10 @@ def main(api_url, api_token, conf_file):
         print 'WARNING! Time records will not be commited onto the ActiveCollab server (commit option is disabled)'
 
     if not DATE:
-        date_input = raw_input('Please enter any date within the week you want to load times to (DD-MM-YYYY): ')
+        try:
+            date_input = raw_input('Please enter any date within the week you want to load times to (DD-MM-YYYY): ')
+        except KeyboardInterrupt:
+            _error_and_exit('Cancelled by user')
         if not date_input:
             _error_and_exit('No date specified, bailing out...')
         try:
@@ -178,35 +189,40 @@ def main(api_url, api_token, conf_file):
     remote_projects = ac_connector._get_projects()
     if not remote_projects:
         _error_and_exit('No remote projects are viewable by you')
-    for project, milestones in ac_connector.configuration.items():
-        if not milestones.values():
-            continue
-        matched_projects = [ _ for _ in remote_projects if project.lower() in _['name'].lower() ]
+    for project_name, project_milestones in ac_connector.configuration.items():
+        matched_projects = [ _ for _ in remote_projects if project_name.lower() in _['name'].lower() ]
         if not matched_projects:
             continue
         # print matched_projects
         for matched_project in matched_projects:
+            remote_times = ac_connector._get_times(matched_project['id'])
             remote_milestones = ac_connector._get_milestones(matched_project['id'])
-            for milestone in milestones:
-                matched_milestones = [ _ for _ in remote_milestones if milestone.lower() in _['name'].lower() ]
-                if not matched_milestones:
+            for record_date in date_range(week_start, week_end):
+                if [ _ for _ in remote_times if str(record_date) in _['record_date']
+                        and _['user']['id'] == ac_connector.user_id ]:
+                    print 'Skipping time records for date %s (something loaded)...' % record_date
                     continue
-                # print matched_milestones
-                for matched_milestone in matched_milestones:
-                    remote_tickets = ac_connector._get_tickets(matched_project['id'], matched_milestone['id'])
-                    for ticket in milestones.values():
-                        for ticket_name, ticket_time in ticket.items():
-                            matched_tickets = [ _ for _ in remote_tickets if ticket_name.lower() in _['name'].lower() ]
+                for milestone_name, milestone_tickets in project_milestones.items():
+                    matched_milestones = [ _ for _ in remote_milestones if milestone_name.lower() in _['name'].lower() ]
+                    if not matched_milestones or not milestone_tickets:
+                        continue
+                    # print matched_milestones
+                    for matched_milestone in matched_milestones:
+                        remote_tickets = ac_connector._get_tickets(matched_project['id'], matched_milestone['id'])
+                        for ticket_name, ticket_time in milestone_tickets.items():
+                            matched_tickets = [ _ for _ in remote_tickets
+                                                if ticket_name.lower() in _['name'].lower() ]
                             if not matched_tickets:
                                 continue
                             # print matched_tickets
-                            for matched_ticket in matched_tickets:
-                                if COMMIT:
-                                    for record_date in date_range(week_start, week_end):
-                                        ticket_description = matched_ticket['name']
-                                        ac_connector._add_time_record(matched_project['id'],
-                                            matched_ticket['ticket_id'], ticket_description, str(record_date),
-                                            ticket_time)
+                            if COMMIT:
+                                for matched_ticket in matched_tickets:
+                                    ticket_description = matched_ticket['name']
+                                    print 'Adding time record for date %s, ticket ID %d...' % (record_date,
+                                                                                        matched_ticket['ticket_id'])
+                                    ac_connector._add_time_record(matched_project['id'],
+                                        matched_ticket['ticket_id'], ticket_description, str(record_date),
+                                        ticket_time)
 
 if __name__ == '__main__':
     main(API_URL, API_TOKEN, CONF_FILE)
