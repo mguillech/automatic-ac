@@ -21,10 +21,12 @@ Automatic loading of time records onto an ActiveCollab service.
 
 # Usage:
 
-`python auto_ac.py [-a|--autodate] [-c|--commit]`
+`python auto_ac.py [-a|--autodate] [-c|--commit] [-r|--random]`
 
 Where:
 
 + -a or --autodate is used to use the current week as the week to load time records to.
 
 + -c or --commit is used to commit the records onto the ActiveCollab server (needs to be set explicitly!).
+
++ -r or --random is used to uniformly distribute time among the tickets across a day automatically.

@@ -35,9 +35,9 @@ def print_usage():
     print 'Usage: %s [optional arguments]' % sys.argv[0]
     print '''Where optional arguments could be:
 
-    -c [--autocommit]\tAuto commit changes to your ActiveCollab profile'
-    -a [--autodate]\tAutomatically calculate the week the application should load the times to
-    -r [--random]\tUniformly distribute time among the tickets across a day
+    -c [--autocommit]\tAuto commit changes to your ActiveCollab profile.
+    -a [--autodate]\tAutomatically calculate the week the application should load the times to.
+    -r [--random]\tUniformly distribute time among the tickets across a day.
     -h [--help]\tThis screen
     '''
     sys.exit(0)
