@@ -6,7 +6,7 @@ Automatic loading of time records onto an ActiveCollab service.
 
 ## Python 2.7.x
 
-+ Linux: Any decent distro comes with Python by default
++ Linux: Any decent distro comes with Python by default.
 + Windows: http://www.python.org/ftp/python/2.7.3/python-2.7.3.msi (x86)
 + OSX: http://www.python.org/ftp/python/2.7.3/python-2.7.3-macosx10.6.dmg (x86_64)
 
@@ -25,6 +25,6 @@ Automatic loading of time records onto an ActiveCollab service.
 
 Where:
 
-+ -a|--autodate is used to use the current week as the week to load time records to
++ -a or --autodate is used to use the current week as the week to load time records to.
 
-+ -c|--commit is used to commit the records onto the ActiveCollab server (needs to be set explicitly!)
++ -c or --commit is used to commit the records onto the ActiveCollab server (needs to be set explicitly!).
