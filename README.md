@@ -25,6 +25,6 @@ Automatic loading of time records onto an ActiveCollab service.
 
 Where:
 
-## -a|--autodate is used to use the current week as the week to load time records to
++ -a|--autodate is used to use the current week as the week to load time records to
 
-## -c|--commit is used to commit the records onto the ActiveCollab server (needs to be set explicitly!)
++ -c|--commit is used to commit the records onto the ActiveCollab server (needs to be set explicitly!)

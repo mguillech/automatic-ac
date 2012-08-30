@@ -68,9 +68,9 @@ class _AC_Connector(object):
                     pass
                 print 'Attempting to launch file editor...'
                 if os.uname()[0] == 'Linux':
-                    os.system('gedit %s' % self.conf_file)
+                    os.system('xdg-open %s' % self.conf_file)
                 else:
-                    os.system('notepad %s' % self.conf_file)
+                    os.startfile('%s' % self.conf_file)
             else:
                 sys.exit(0)
         try:
