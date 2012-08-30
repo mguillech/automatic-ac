@@ -56,7 +56,7 @@ class _AC_Connector(object):
         self.user_id = None
         self.configuration = None
 
-    def __load_configuration(self):
+    def _load_configuration(self):
         if not os.path.exists(self.conf_file):
             edit_conf = raw_input('Configuration file does not exist. Would you like to edit a new one? (Y/n) ')
             if edit_conf.lower() in ('y', 'yes', ''):
@@ -83,7 +83,7 @@ class _AC_Connector(object):
                 _error_and_exit('Configuration is not valid! Please re-create the configuration file')
             self.configuration = loaded_conf
 
-    def __make_request(self, params={}, data={}, headers={}, method='GET'):
+    def _make_request(self, params={}, data={}, headers={}, method='GET'):
         method_lower = method.lower()
         parms = {'token': self.api_token, 'format': 'json'}
         parms.update(params)
@@ -103,9 +103,9 @@ class _AC_Connector(object):
         except ValueError:
             return []
 
-    def __set_user_id(self):
+    def _set_user_id(self):
         params = {'path_info': 'info'}
-        remote_info = self.__make_request(params)
+        remote_info = self._make_request(params)
         try:
             self.user_id = int(urllib.unquote(remote_info['logged_user']).split('/')[-1])
         except ValueError:
@@ -113,34 +113,34 @@ class _AC_Connector(object):
         else:
             return self.user_id
 
-    def __get_projects(self):
+    def _get_projects(self):
         params = {'path_info': 'projects'}
-        remote_projects = self.__make_request(params)
+        remote_projects = self._make_request(params)
         return remote_projects
 
-    def __get_milestones(self, project_id):
+    def _get_milestones(self, project_id):
         params = {'path_info': 'projects/%s/milestones' % project_id}
-        remote_milestones = self.__make_request(params)
+        remote_milestones = self._make_request(params)
         return remote_milestones
 
-    def __get_tickets(self, project_id, milestone_id):
+    def _get_tickets(self, project_id, milestone_id):
         params = {'path_info': 'projects/%s/tickets' % project_id}
-        remote_tickets = self.__make_request(params)
+        remote_tickets = self._make_request(params)
         tickets = [ ticket for ticket in remote_tickets if ticket['milestone_id'] == milestone_id]
         return tickets
 
-    def __get_times(self, project_id):
+    def _get_times(self, project_id):
         params = {'path_info': 'projects/%s/time' % project_id}
-        remote_times = self.__make_request(params)
+        remote_times = self._make_request(params)
         return remote_times
 
-    def __add_time_record(self, project_id, ticket_id, description, record_date, time):
+    def _add_time_record(self, project_id, ticket_id, description, record_date, time):
         params={'path_info': 'projects/%s/time/add' % project_id}
         data={'submitted': 'submitted', 'time[user_id]': self.user_id, 'time[value]': time,
               'time[record_date]': record_date, 'time[body]': description, 'time[billable_status]': 1,
               'time[parent_id]': ticket_id}
         # print params, data
-        add_record = self.__make_request(params, data, method='POST')
+        add_record = self._make_request(params, data, method='POST')
         if 'id' not in add_record:
             print 'Error creating time record: %s' % add_record['field_errors']
 
@@ -164,7 +164,7 @@ def main(api_url, api_token, conf_file):
             print_usage()
 
     if not COMMIT:
-        print 'WARNING! Time records will not be commited onto the ActiveCollab server (commit option is disabled)'
+        print 'WARNING! Time records will *NOT* be commited onto the ActiveCollab server (commit option is disabled)'
 
     if not DATE:
         try:
@@ -181,12 +181,12 @@ def main(api_url, api_token, conf_file):
     week_start, week_end = calculate_week(DATE)
     # Initialize ActiveCollab connector with personal configuration
     connector = _AC_Connector(api_url, api_token, conf_file)
-    connector.__load_configuration()
-    connector.__set_user_id()
+    connector._load_configuration()
+    connector._set_user_id()
 
     print 'Attempting to load time data starting at %s and up to %s ...' % (week_start, week_end)
 
-    remote_projects = connector.__get_projects()
+    remote_projects = connector._get_projects()
     if not remote_projects:
         _error_and_exit('No remote projects are viewable by you')
     for project_name, project_milestones in connector.configuration.items():
@@ -195,12 +195,12 @@ def main(api_url, api_token, conf_file):
             continue
         # print matched_projects
         for matched_project in matched_projects:
-            remote_times = connector.__get_times(matched_project['id'])
-            remote_milestones = connector.__get_milestones(matched_project['id'])
+            remote_times = connector._get_times(matched_project['id'])
+            remote_milestones = connector._get_milestones(matched_project['id'])
             for record_date in date_range(week_start, week_end):
                 if [ _ for _ in remote_times if str(record_date) in _['record_date']
                         and _['user']['id'] == connector.user_id ]:
-                    print 'Skipping time records for date %s (something loaded)...' % record_date
+                    print 'Skipping time records for date %s (something already loaded)...' % record_date
                     continue
                 for milestone_name, milestone_tickets in project_milestones.items():
                     matched_milestones = [ _ for _ in remote_milestones if milestone_name.lower() in _['name'].lower() ]
@@ -208,19 +208,19 @@ def main(api_url, api_token, conf_file):
                         continue
                     # print matched_milestones
                     for matched_milestone in matched_milestones:
-                        remote_tickets = connector.__get_tickets(matched_project['id'], matched_milestone['id'])
+                        remote_tickets = connector._get_tickets(matched_project['id'], matched_milestone['id'])
                         for ticket_name, ticket_time in milestone_tickets.items():
                             matched_tickets = [ _ for _ in remote_tickets
                                                 if ticket_name.lower() in _['name'].lower() ]
                             if not matched_tickets:
                                 continue
                             # print matched_tickets
-                            if COMMIT:
-                                for matched_ticket in matched_tickets:
-                                    ticket_description = matched_ticket['name']
-                                    print 'Adding time record for date %s, ticket ID %d...' % (record_date,
-                                                                                        matched_ticket['ticket_id'])
-                                    connector.__add_time_record(matched_project['id'],
+                            for matched_ticket in matched_tickets:
+                                ticket_description = matched_ticket['name']
+                                print 'Adding time record for date %s, ticket ID %d...' % (record_date,
+                                                                                    matched_ticket['ticket_id'])
+                                if COMMIT:
+                                    connector._add_time_record(matched_project['id'],
                                         matched_ticket['ticket_id'], ticket_description, str(record_date),
                                         ticket_time)
 
