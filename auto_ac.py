@@ -8,6 +8,8 @@ import shutil
 import datetime
 import json
 import urllib
+import itertools
+import random
 
 try:
     import requests
@@ -23,6 +25,7 @@ except ImportError:
 API_URL = 'https://your_ac_api_url'
 API_TOKEN = 'your_api_token'
 CONF_FILE = os.path.join(os.path.expanduser('~'), '.auto_ac.rc')
+MAX_DAY_HOURS = 8.0
 
 def _error_and_exit(msg):
     print "\nERROR: %s" % msg
@@ -34,6 +37,7 @@ def print_usage():
 
     -c [--autocommit]\tAuto commit changes to your ActiveCollab profile'
     -a [--autodate]\tAutomatically calculate the week the application should load the times to
+    -r [--random]\tUniformly distribute time among the tickets across a day
     -h [--help]\tThis screen
     '''
     sys.exit(0)
@@ -47,6 +51,16 @@ def date_range(date_start, date_end):
     delta = (date_end - date_start).days
     for d in xrange(delta + 1):
         yield date_start + datetime.timedelta(days=d)
+
+def float_range(start, end, step=1.0):
+    i = start
+    while i <= end:
+        yield i
+        i += step
+
+def random_times(num_tickets):
+    return list(random.choice([ i for i in itertools.combinations(float_range(0.5, MAX_DAY_HOURS, 0.5),
+        num_tickets) if sum(i) == MAX_DAY_HOURS ]))
 
 class _AC_Connector(object):
     def __init__(self, api_url, api_token, conf_file):
@@ -147,24 +161,26 @@ class _AC_Connector(object):
 
 def main(api_url, api_token, conf_file):
     # Internal flags
-    AUTO_DATE = COMMIT = DATE = False
+    COMMIT = DATE = RANDOM_TIMES = False
 
     try:
-        opts, _ = getopt.getopt(sys.argv[1:], 'ach', ['autodate', 'commit', 'help'])
+        opts, _ = getopt.getopt(sys.argv[1:], 'acrh', ['autodate', 'commit', 'random', 'help'])
     except getopt.GetoptError, exc:
         print 'getopt error: %s\n' % exc
         print_usage()
     for o, a in opts:
         if o in ('-a', '--autodate'):
-            AUTO_DATE = True
             DATE = datetime.date.today()
         elif o in ('-c', '--commit'):
             COMMIT = True
+        elif o in ('-r', '--random'):
+            print '[INFO] Random times mode activated'
+            RANDOM_TIMES = True
         elif o in ('-h', '--help'):
             print_usage()
 
     if not COMMIT:
-        print 'WARNING! Time records will *NOT* be commited onto the ActiveCollab server (commit option is disabled)'
+        print '[WARNING] Time records will *NOT* be commited onto the ActiveCollab server (commit option is disabled)'
 
     if not DATE:
         try:
@@ -183,8 +199,15 @@ def main(api_url, api_token, conf_file):
     connector = _AC_Connector(api_url, api_token, conf_file)
     connector._load_configuration()
     connector._set_user_id()
+    NUM_TICKETS = len(list(itertools.chain.from_iterable(
+                        [ _tickets.keys() for _milestones in connector.configuration.values()
+                          for _tickets in _milestones.values() ])
+                    ))
+    if not NUM_TICKETS:
+        _error_and_exit('No tickets in your configuration, aborting...')
 
-    print 'Attempting to load time data starting at %s and up to %s ...' % (week_start, week_end)
+    print 'Attempting to load %d tickets time data starting at %s and up to %s ...' % (NUM_TICKETS,
+                                                                                       week_start, week_end)
 
     remote_projects = connector._get_projects()
     if not remote_projects:
@@ -198,6 +221,8 @@ def main(api_url, api_token, conf_file):
             remote_times = connector._get_times(matched_project['id'])
             remote_milestones = connector._get_milestones(matched_project['id'])
             for record_date in date_range(week_start, week_end):
+                if RANDOM_TIMES:
+                    random_times_list = random_times(NUM_TICKETS)
                 if [ _ for _ in remote_times if str(record_date) in _['record_date']
                         and _['user']['id'] == connector.user_id ]:
                     print 'Skipping time records for date %s (something already loaded)...' % record_date
@@ -216,13 +241,15 @@ def main(api_url, api_token, conf_file):
                                 continue
                             # print matched_tickets
                             for matched_ticket in matched_tickets:
+                                if RANDOM_TIMES:
+                                    ticket_time = random_times_list.pop()
                                 ticket_description = matched_ticket['name']
-                                print 'Adding time record for date %s, ticket ID %d...' % (record_date,
-                                                                                    matched_ticket['ticket_id'])
+                                print 'Adding time record for date %s, ticket ID %d, %s hours...' % (record_date,
+                                                                                    matched_ticket['ticket_id'],
+                                                                                    ticket_time)
                                 if COMMIT:
-                                    connector._add_time_record(matched_project['id'],
-                                        matched_ticket['ticket_id'], ticket_description, str(record_date),
-                                        ticket_time)
+                                    connector._add_time_record(matched_project['id'], matched_ticket['id'],
+                                        ticket_description, str(record_date), ticket_time)
 
 if __name__ == '__main__':
     main(API_URL, API_TOKEN, CONF_FILE)
